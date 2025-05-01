@@ -45,10 +45,18 @@ class Node:
 
     # set a position node to the position of the current board, used to generate the tree root
     def copy_from_current(self):
-        self.board = current.board
-        self.pieces = current.pieces
+        global current
+        self.board = [] * 64
+        for i in range(64):
+            self.board[i] = current.board[i]
+        self.pieces = [[]] * 12
+        for i in range(12):
+            for j in current.pieces[i]:
+                self.pieces[i].append(j)
         self.turn = current.turn
-        self.miscs = current.miscs
+        self.miscs = [] * 6
+        for i in range(6):
+            self.miscs[i] = current.miscs[i]
 
         self.movefrom = current.movefrom
         self.moveto = current.moveto
@@ -61,12 +69,7 @@ class Node:
 
     # reset the board to its starting position
     def setup_board(self):
-        for i in range(16):
-            self.board[i] = i
-        for i in range(16, 48):
-            self.board[i] = -1
-        for i in range(48, 64):
-            self.board[i] = i - 32
+        self.board = [3,1,2,4,5,2,1,3,0,0,0,0,0,0,0,0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,6,6,6,6,6,6,6,6,9,7,8,10,11,8,7,9]
         self.pieces = [[8,9,10,11,12,13,14,15],[1,6],[2,5],[0,7],[3],[4],[48,49,50,51,52,53,54,55],[57,62],[58,61],[56,63],[59],[60]]
         self.turn = 0
         for i in range(4):
@@ -76,9 +79,9 @@ class Node:
         
     # determine if white is not in check in a position
     def white_out_of_check(self):
-        pos = self.pieces[4][0]
+        pos = self.pieces[5][0]
         b = self.board
-        rank = pos / 8
+        rank = int(pos / 8)
         file = pos % 8
 
         # look for rook and queen checks
@@ -196,9 +199,10 @@ class Node:
 
     # determine if black is not in check in a position
     def black_out_of_check(self):
-        pos = self.pieces[28]
+        print(self.pieces)
+        pos = self.pieces[11][0]
         b = self.board
-        rank = pos / 8
+        rank = int(pos / 8)
         file = pos % 8
 
         # look for rook and queen checks
@@ -329,8 +333,8 @@ class Node:
         # get the moving piece's specific number, return false if not found
         movernum = 0
         found = False
-        for i in range(len(self.p[movertype])):
-            if self.p[movertype][i] == movefrom:
+        for i in range(len(self.pieces[movertype])):
+            if self.pieces[movertype][i] == movefrom:
                 movernum = i
                 found = True
                 break
@@ -345,15 +349,17 @@ class Node:
             if desttype > 5: capturing = True
 
         srcfile = movefrom % 8
-        srcrank = movefrom / 8
+        srcrank = int(movefrom / 8)
         difffile = moveto % 8
-        diffrank = moveto / 8
+        diffrank = int(moveto / 8)
         diff = moveto - movefrom
 
         # depending on the piece, check if this move is legal
         match movertype:
             case 0:
                 if diff == 8 and desttype == -1: return True
+                if diff == 16 and srcrank == 1 and desttype == -1:
+                    if self.board[movefrom + 8] == -1: return True
                 if diff == 7 and srcfile > 0 and desttype > 5 : return True
                 if diff == 9 and srcfile < 7 and desttype > 5 : return True
                 if diff == 7 and srcfile > 0 and desttype == -1 and self.board[movefrom - 1] == 6 and self.miscs[4] == srcfile - 1 : return True # en passant left
@@ -361,6 +367,8 @@ class Node:
                     # promotion
             case 6:
                 if diff == -8 and desttype == -1 : return True
+                if diff == -16 and srcrank == 6 and desttype == -1:
+                    if self.board[movefrom - 8] == -1: return True
                 if diff == -9 and srcfile > 0 and desttype > -1 and desttype < 6 : return True
                 if diff == -7 and srcfile < 7 and desttype > -1 and desttype < 6 : return True
                 if diff == -9 and srcfile > 0 and desttype == -1 and self.board[movefrom - 1] == 0 and self.miscs[4] == srcfile - 1 : return True # en passant left
@@ -461,17 +469,18 @@ class Node:
     # Determine if a move is legal: semilegal and not putting the player who moves in check
     def is_legal_move(self, movefrom, moveto):
         if self.is_semilegal_move(movefrom, moveto):
-            new = self.execute_move(movefrom, moveto, False)
+            new = self.execute_move(movefrom, moveto)
             if new == None: return False
             if new.turn % 2 == 1: return new.white_out_of_check()
             return new.black_out_of_check()
         return False
     
-    # method for adding a new position child node to a current leaf, given the node and the piece movement
-    def execute_move(self, movefrom, moveto, add):
+    # method for generating position after move, or for adding a new position child node to a current leaf, given the node and the piece movement
+    def execute_move(self, movefrom, moveto):
         b = self.board[:]
         p = self.pieces[:]
         m = self.miscs[:]
+        print(p)
         movertype = b[movefrom]
         if movertype < 0 or movertype > 11: return self
         
@@ -481,7 +490,7 @@ class Node:
         for i in range(len(pm)):
             if pm[i] == movefrom:
                 movernum = i
-                # changing the piece's location on the new board string
+                # changing the piece's location on the new board array
                 b[movefrom] = -1
                 if b[moveto] > -1:
                     capturing = True
@@ -496,12 +505,13 @@ class Node:
                 pm[i] = moveto
                 break
 
+        print(p)
         # white pawn promotion
         if movertype == 0 and moveto > 55:
             # remove the pawn
             pm.pop(movernum)
             # add the promoted piece depending on its type
-            p[(moveto / 8) - 6].append(56 + (moveto % 8))
+            p[int(moveto / 8) - 6].append(56 + (moveto % 8))
             # since captures have been covered above, we are done
 
         # black pawn promotion
@@ -509,7 +519,7 @@ class Node:
             # remove the pawn
             pm.pop(movernum)
             # add the promoted piece depending on its type
-            p[10 - (moveto / 8)].append(56 + (moveto % 8))
+            p[10 - int(moveto / 8)].append(56 + (moveto % 8))
             # since captures have been covered above, we are done
 
 
@@ -571,26 +581,23 @@ class Node:
         m[5] += 1
         if(capturing):
             m[5] = 0
+        print(p)
 
         # creating the new position child node
-        new_node = Node(b, p, self.turn + 1, m, movefrom, moveto)
+        new = Node(b, p, self.turn + 1, m, movefrom, moveto)
 
         # add the move to the new position
-        new_node.movefrom = movefrom
-        new_node.moveto = moveto
-        
-        # evaluate the new position
-        new_node.eval = new_node.base_evaluate()
+        new.movefrom = movefrom
+        new.moveto = moveto
 
         # add the new position to the tree (leaf's children)
-        self.children.append(new_node)
+        self.children.append(new)
 
-        if new_node.eval == None: return None
+        if new.eval == None: return None
 
         # if both kings are on the board, add the new position to the queue for future branching
-        if add:
-            futures.append(new_node)
-        return new_node
+        futures.append(new)
+        return new
     
     # evaluate an entirely new position
     def base_evaluate(self, sq_eval, time_limit):
@@ -604,7 +611,7 @@ class Node:
         self.copy_from_current()
 
         # add the current position to the queue of positions to evaluate
-        futures.append(Node(current.board, current.pieces, current.turn, current.miscs, "", ""))
+        futures.append(Node(self.board, self.pieces, self.turn, self.miscs, "", ""))
 
         # get the time at the start of the evaluation
         start_time = time.time_ns()
@@ -619,7 +626,7 @@ class Node:
             p = node.pieces
 
             # if there are fewer than two kings on the board, quit evaluating
-            if p[4] == -1 or p[28] == -1: return None
+            if len(p[5]) == 0 or len(p[11]) == 0: return None
 
             e = 0.0
 
@@ -645,7 +652,7 @@ class Node:
 
             # get all choices for moves branching off this position and add them to both the tree of position nodes and the futures queue
             global_add_moves = True
-            if(node.current_turn % 2 == 0):
+            if(node.turn % 2 == 0):
                 node.get_choices_white()
             else:
                 node.get_choices_black()
@@ -664,13 +671,11 @@ class Node:
                 self.best_moveto = i.moveto
 
     # add a possible choice defined by moving from movefrom to moveto using first position in queue
-    def add_choice(movefrom, moveto):
+    def add_choice(self, movefrom, moveto):
         
-        new_position = futures[0].execute_move(movefrom, moveto, True)
+        new_position = futures[0].execute_move(movefrom, moveto)
         if new_position != None:
             futures.append(new_position)
-                
-        # change this function and/or execute_move to accommodate castling
 
     # checks whether a piece can move to a square and returns True when cannot move farther (MAYBE MAKE SURE NOT MOVING INTO CHECK)
     def check_square_move(self, movefrom, moveto):
@@ -691,7 +696,7 @@ class Node:
 
         b = self.board
         mover = b[movefrom]
-        rank = movefrom / 8
+        rank = int(movefrom / 8)
         file = movefrom % 8
 
         # if moving the wrong color piece, exit immediately
@@ -796,7 +801,8 @@ class Node:
                     moveto = (rank + 1) * 8 + file
                     if b[moveto] == ' ': # move upward
                         self.add_choice(movefrom, moveto)
-
+                        if rank == 1 and b[moveto + 8] == ' ': # move upward two spaces
+                            self.add_choice(movefrom, moveto + 8)
                     moveto = (rank + 1) * 8 + file + 1
                     if file < 7:
                         if b[moveto] > 5: # capture up-right
@@ -815,7 +821,8 @@ class Node:
                     moveto = (rank - 1) * 8 + file
                     if b[moveto] == ' ': # move downward
                         self.add_choice(movefrom, moveto)
-
+                        if rank == 6 and b[moveto - 8] == ' ': # move upward two spaces
+                            self.add_choice(movefrom, moveto - 8)
                     moveto = (rank - 1) * 8 + file + 1
                     if file < 7:
                         if b[moveto] > -1 and b[moveto] < 6: # capture down-right
@@ -932,6 +939,7 @@ class Node:
 
     # checks whether the game has ended
     def check_game_end(self):
+
         if self.turn % 2 == 0:
             self.get_choices_white()
             if(len(self.children) == 0):
@@ -955,44 +963,40 @@ class Node:
         del(self)
     
     # check whether any of the possible user moves with a piece to a destination square is legal
-    def check_user_move(self, dest, s):
-        p = self.pieces
-        for i in range(len(p)):
-            if self.is_legal_move(p[i], dest):
-                user_movefrom = p[i]
+    def check_user_move(self, p, dest, s):
+        for i in p:
+            if self.is_legal_move(i, dest):
+                user_movefrom = i
                 user_moveto = dest
                 return False
         print("\"" + s + "\" is not a valid move. No piece of this type can move to this square without putting you into check.\n")
         return True
 
     # check whether any of the possible user moves with a piece on file to a destination square is legal
-    def check_user_move_file(self, dest, s, file):
-        p = self.pieces
-        for i in range(len(p)):
-            if p[i] % 8 == file - 'a' and self.is_legal_move(p[i], dest):
-                user_movefrom = p[i]
+    def check_user_move_file(self, p, dest, s, file):
+        for i in p:
+            if i % 8 == ord(file) - ord('a') and self.is_legal_move(i, dest):
+                user_movefrom = i
                 user_moveto = dest
                 return False
         print("\"" + s + "\" is not a valid move. No piece of this type and file can move to this square without putting you into check.\n")
         return True
 
     # check whether any of the possible user moves with a piece on rank to a destination square is legal
-    def check_user_move_rank(self, dest, s, rank):
-        p = self.pieces
-        for i in range(len(p)):
-            if(p[i] / 8 == rank - '1' and self.is_legal_move(p[i], dest)):
-                user_movefrom = p[i]
+    def check_user_move_rank(self, p, dest, s, rank):
+        for i in p:
+            if(int(i / 8) == ord(rank) - ord('1') and self.is_legal_move(i, dest)):
+                user_movefrom = i
                 user_moveto = dest
                 return False
         print("\"" + s + "\" is not a valid move. No piece of this type and rank can move to this square without putting you into check.\n")
         return True
 
     # check whether any of the possible user moves with a piece on file and rank to a destination square is legal
-    def check_user_move_both(self, dest, s, file, rank):
-        p = self.pieces
-        for i in range(len(p)):
-            if(p[i] % 8 == file - 'a' and p[i] / 8 == rank - '1' and self.is_legal_move(p[i], dest)):
-                user_movefrom = p[i]
+    def check_user_move_both(self, p, dest, s, file, rank):
+        for i in p:
+            if(i % 8 == ord(file) - ord('a') and int(i / 8) == ord(rank) - ord('1') and self.is_legal_move(i, dest)):
+                user_movefrom = i
                 user_moveto = dest
                 return False
         print("\"" + s + "\" is not a valid move. No piece of this type, rank, and file can move to this square without putting you into check.\n")
@@ -1005,15 +1009,17 @@ class Node:
 # castling: (0/1) WK, WQ, BK, BQ, en passant file (0-7), 50 move rule (int)
 # past movesfrom
 # past movesto
-current = Node("", [[] * 12], 0, [1, 1, 1, 1, -1, 0], "", "")
+current = Node([-1] * 64, [[] * 12], 0, [1, 1, 1, 1, -1, 0], -1, -1)
 
-tree_root = Node(current.board, current.pieces, current.turn, current.miscs, "", "")
-
+tree_root = Node(current.board, current.pieces, current.turn, current.miscs, -1, -1)
 
 
 # train (evolve) the algorithm
 def train(time_limit, training_time_limit, mutation_strength, upper_limit, lower_limit):
+    global current
+
     winner = 0
+    global tree_root
 
     # only initialize the first square_evals list since this is the first winner
     square_eval0 = [[0.0] * 64] * 12
@@ -1057,9 +1063,9 @@ def train(time_limit, training_time_limit, mutation_strength, upper_limit, lower
 
             # White bot plays
 
-            current.base_evaluate(square_eval0, time_limit)
+            tree_root.base_evaluate(square_eval0, time_limit)
 
-            new = current.execute_move(user_movefrom, user_moveto)
+            new = current.execute_move(tree_root.best_movefrom, tree_root.best_moveto)
             current = new
                     
             game_status = current.check_game_end()
@@ -1075,7 +1081,7 @@ def train(time_limit, training_time_limit, mutation_strength, upper_limit, lower
                         
             # Black bot plays
 
-            current.base_evaluate(square_eval1, time_limit)
+            tree_root.base_evaluate(square_eval1, time_limit)
 
             new = current.execute_move(tree_root.best_movefrom, tree_root.best_moveto)
             current = new
@@ -1118,22 +1124,23 @@ def train(time_limit, training_time_limit, mutation_strength, upper_limit, lower
 
 # parse the user's answer and get the movefrom and moveto squares
 def parse_move(answer):
+    global current
 
     s = ""
 
     # fill a new string with only meaningful characters
     for i in answer:
-        if (i >= '0' and i <= '9') or (i >= 'a' and i <= 'h') or i == 'B' or i == 'K' or i == 'N' or i == 'Q' or i == 'R':
+        if (ord(i) >= ord('0') and ord(i) <= ord('9')) or (ord(i) >= ord('a') and ord(i) <= ord('h')) or i == 'B' or i == 'K' or i == 'N' or i == 'Q' or i == 'R':
             s += i
     
     l = len(s)
     if l < 2 or l > 5:
         print("\"" + s + "\" is not a valid move. Moves must be 2, 3, 4, or 5 characters long.\n")
         return True
-    if not (s[0] == 'N' or s[0] == 'B' or s[0] == 'R' or s[0] == 'Q' or s[0] == 'K' or (s[0] >= 'a' and s[0] <= 'h')):
+    if not (s[0] == 'N' or s[0] == 'B' or s[0] == 'R' or s[0] == 'Q' or s[0] == 'K' or (ord(s[0]) >= ord('a') and ord(s[0]) <= ord('h'))):
         print("\"" + s + "\" is not a valid move. Moves must start with a piece letter N/B/R/Q/K or board file a-h.\n")
         return True
-    if not (s[l - 2] >= 'a' and s[l - 2] <= 'h' and s[l - 1] >= '1' and s[l - 1] <= '8'):
+    if not (ord(s[l - 2]) >= ord('a') and ord(s[l - 2]) <= ord('h') and ord(s[l - 1]) >= ord('1') and ord(s[l - 1]) <= ord('8')):
         print("\"" + s + "\" is not a valid move. Moves must end with a board file a-h and then a board rank 1-8.\n")
         return True
     
@@ -1143,7 +1150,7 @@ def parse_move(answer):
     m = current.miscs
     black = 0
     if t % 2 == 1: black = 6
-    dest = (s[l - 2] - 'a') * 8 + s[l - 1]
+    dest = (ord(s[l - 1]) - ord('1')) * 8 + ord(s[l - 2]) - ord('a')
 
     if s == "00": # kingside castle
         if black: #BK
@@ -1191,7 +1198,7 @@ def parse_move(answer):
                     break
     
     if l == 2: # handle 2-char moves
-        return current.check_user_move(p[black], dest, s, s[0]) # handle 2-char moves (pawn moves and en passants)
+        return current.check_user_move(p[black], dest, s) # handle 2-char moves (pawn moves and en passants)
     elif l == 3: # handle 3-char moves
         match s[0]: # handle 3-char moves that begin with N/B/R/Q/K (non-pawn moves)
             case 'N':
@@ -1205,35 +1212,36 @@ def parse_move(answer):
             case 'K':
                 return current.check_user_move(p[5 + black], dest, s)
         
-        return current.check_user_move_file(p[black], dest, s, s[0]) # handle 3-char moves that begin with a file (pawn captures)
+        return current.check_user_move_file(p[black], dest, s) # handle 3-char moves that begin with a file (pawn captures)
         
     elif l == 4: # handle 4-char moves (source-dest notation and non-pawn moves on file or rank)
+        is_file = ord(s[1]) >= ord('a') and ord(s[1]) <= ord('h')
         match s[0]: # handle 4-char moves that begin with N/B/R/Q/K (non-pawn moves on file or rank)
             case 'N':
-                if s[1] >= 'a' and s[1] <= 'h':
+                if is_file:
                     return current.check_user_move_file(p[1 + black], dest, s, s[1])
                 return current.check_user_move_rank(p[1 + black], dest, s, s[1])
             case 'B':
-                if s[1] >= 'a' and s[1] <= 'h':
+                if is_file:
                     return current.check_user_move_file(p[2 + black], dest, s, s[1])
                 return current.check_user_move_rank(p[2 + black], dest, s, s[1])
             case 'R':
-                if s[1] >= 'a' and s[1] <= 'h':
+                if is_file:
                     return current.check_user_move_file(p[3 + black], dest, s, s[1])
                 return current.check_user_move_rank(p[3 + black], dest, s, s[1])
             case 'Q':
-                if s[1] >= 'a' and s[1] <= 'h':
+                if is_file:
                     return current.check_user_move_file(p[4 + black], dest, s, s[1])
                 return current.check_user_move_rank(p[4 + black], dest, s, s[1])
             case 'K':
-                if s[1] >= 'a' and s[1] <= 'h':
+                if is_file:
                     return current.check_user_move_file(p[5 + black], dest, s, s[1])
                 return current.check_user_move_rank(p[5 + black], dest, s, s[1])
         
         return current.check_user_move_both(p[black], dest, s, s[0], s[1]) # handle source-dest notation
 
     elif l == 5: # handle 5-char moves (non-pawn moves on file and rank)
-        if not (s[1] >= 'a' and s[1] <= 'h' and s[2] >= '1' and s[2] <= '8'):
+        if not (ord(s[1]) >= ord('a') and ord(s[1]) <= ord('h') and ord(s[2]) >= ord('1') and ord(s[2]) <= ord('8')):
             print("\"" + s + "\" is not a valid move. Five-character moves must use a board file a-h and then a board rank 1-8 as the second and third characters.\n")
             return True
         
@@ -1257,12 +1265,13 @@ def parse_move(answer):
 
 # print the board as ascii text
 def print_board():
+    global current
+
     for i in range(8):
-        print("--------------------------")
-        print("|   |   |   |   |   |   |   |   |")
+        print("---------------------------------")
+        s = "|"
         for j in range(8):
-            s = "|"
-            match(current.board[i * 8 + j]):
+            match(current.board[(7 - i) * 8 + j]):
                 case 0: s += " P "
                 case 1: s += " N "
                 case 2: s += " B "
@@ -1276,13 +1285,14 @@ def print_board():
                 case 10: s += " q "
                 case 11: s += " k "
                 case _: s += "   "
-        s += "|"
+            s += "|"
         print(s)
-        print("|   |   |   |   |   |   |   |   |")
-    print("--------------------------\n\n\n")
+    print("---------------------------------\n\n\n")
 
 # executes the player's move
 def player_play():
+    global current
+
     reprompt = True
 
     while reprompt:
@@ -1316,7 +1326,7 @@ def player_play():
             print("For notation following the form \"a4b6\", replace the piece letter at the beginning of any move written using standard notation with the file and rank of the ")
             print("square your piece is moving from.\nFor pawn moves, simply add the square the pawn is moving from to the beginning of the notation.\n")
             print("The rest of the notation follows the above procedure.\n")
-            print("Do not change the notation when castling; use \"0-0\", \"00\", \"000\" or \"0-0-0\".\n")
+            print("Do not change the notation when castling; use \"00\", \"0-0\", \"000\" or \"0-0-0\".\n")
         else:
             reprompt = parse_move(answer)
 
@@ -1327,8 +1337,10 @@ def player_play():
 
 # executes the engine's move
 def engine_play(square_eval, time_limit, difficulty):
+    global tree_root
+    global current
     
-    current.base_evaluate(square_eval, time_limit)
+    tree_root.base_evaluate(square_eval, time_limit)
 
     movefrom = tree_root.best_movefrom
     moveto = tree_root.best_moveto
@@ -1368,6 +1380,8 @@ def engine_play(square_eval, time_limit, difficulty):
 
 # main game loop that controls game progression
 def game_loop(difficulty):
+    global current
+
 
     keep_playing = True
     engine_plays_white = True
@@ -1453,8 +1467,10 @@ def game_loop(difficulty):
 
 # analyze the position of the current node
 def analyze_position(time_limit):
+    global current
+
     print("Analyzing this position...\n\n")
-    current.base_evaluate(square_eval, time_limit)
+    tree_root.base_evaluate(square_eval, time_limit)
 
     moves = []
     for i in current.children:
@@ -1478,13 +1494,15 @@ def analyze_position(time_limit):
 
     # print each move followed by its respective eval
     for i in range(s):
-        print(piece_codes[current.board[moves[i].movefrom]] + file_codes[moves[i].movefrom % 8] + rank_codes[moves[i].movefrom / 8] + file_codes[moves[i].moveto % 8] + rank_codes[moves[i].moveto / 8] + "      " + moves[i].eval + "\n")
+        print(piece_codes[current.board[moves[i].movefrom]] + file_codes[moves[i].movefrom % 8] + rank_codes[int(moves[i].movefrom / 8)] + file_codes[moves[i].moveto % 8] + rank_codes[int(moves[i].moveto / 8)] + "      " + moves[i].eval + "\n")
         
 
 
 
 # parse a user-entered fen code
 def parse_fen(answer):
+    global current
+
     l = len(answer)
     p = current.pieces
     p = [[] * 12]
@@ -1552,7 +1570,7 @@ def parse_fen(answer):
                     b[s] = 11
                     file += 1
                         
-            if answer[spot] >= '1' and answer[spot] <= '8':
+            if ord(answer[spot]) >= ord('1') and ord(answer[spot]) <= ord('8'):
                 file += int(answer[spot])
 
                 spot += 1
@@ -1623,7 +1641,7 @@ def parse_fen(answer):
         if spot >= l:
             print("The FEN code incorrectly ended after the castling indicator.\n\n")
             return 1
-    if answer[spot] >= 'a' and answer[spot] <= 'h':
+    if ord(answer[spot]) >= ord('a') and ord(answer[spot]) <= ord('h'):
         current.miscs[4] = answer[spot] - 'a' # en passant
         spot += 1
         if spot >= l:
@@ -1640,7 +1658,7 @@ def parse_fen(answer):
             print("The FEN code incorrectly ended after the en passant indicator.\n\n")
             return 1
         
-    while answer[spot] >= '0' and answer[spot] <= '9':
+    while ord(answer[spot]) >= ord('0') and ord(answer[spot]) <= ord('9'):
         if(current.miscs[5] > 99):
             print("The FEN code incorrectly ended because the 50-move rule indicator was too large.\n\n")
             return 1
@@ -1650,13 +1668,13 @@ def parse_fen(answer):
         if spot >= l:
             print("The FEN code incorrectly ended during the 50-move rule indicator.\n\n")
             return 1
-    while not (answer[spot] >= '0' and answer[spot] <= '9'):
+    while not (ord(answer[spot]) >= '0' and ord(answer[spot]) <= ord('9')):
         spot += 1
         if spot >= l:
             print("The FEN code incorrectly ended after the 50-move rule indicator.\n\n")
             return 1
     turn = 0
-    while answer[spot] >= '0' and answer[spot] <= '9':
+    while ord(answer[spot]) >= ord('0') and ord(answer[spot]) <= ord('9'):
         if turn > 99:
             print("The FEN code incorrectly ended because the 50-move rule indicator was too large.\n\n")
             return 1
