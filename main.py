@@ -1,6 +1,11 @@
 import time
 import random
 
+# maximum, minimum and middle evals for checkmate and stalemate
+MAX_EVAL = 1000000000.0
+MIN_EVAL = -1000000000.0
+MID_EVAL = 0.0
+
 # Future possible board positions - list of Nodes
 futures = []
 
@@ -9,7 +14,10 @@ user_movefrom = 0
 user_moveto = 0
 
 # Default parameters for evaluation of a piece given its board square
-square_eval = [[0.0] * 64] * 12
+square_eval = [[],[],[],[],[],[],[],[],[],[],[],[]]
+for i in range(12):
+    for j in range(64):
+        square_eval[i].append(0.0)
 
 # Trained parameters for evaluation of a piece given its board square
 
@@ -43,26 +51,29 @@ class Node:
         self.eval = 0.0
         self.children = []
 
-    # set a position node to the position of the current board, used to generate the tree root
-    def copy_from_current(self):
-        global current
-        self.board = [] * 64
+    # set a position node to the position src, used to generate the tree root and replace the current position with the new one after moving
+    def copy_position(self, src):
+
+        self.board = []
         for i in range(64):
-            self.board[i] = current.board[i]
-        self.pieces = [[]] * 12
+            self.board.append(src.board[i])
+
+        self.pieces = [[] for _ in range(12)]
         for i in range(12):
-            for j in current.pieces[i]:
+            for j in src.pieces[i]:
                 self.pieces[i].append(j)
-        self.turn = current.turn
-        self.miscs = [] * 6
+
+        self.turn = src.turn
+
+        self.miscs = []
         for i in range(6):
-            self.miscs[i] = current.miscs[i]
+            self.miscs.append(src.miscs[i])
 
-        self.movefrom = current.movefrom
-        self.moveto = current.moveto
+        self.movefrom = src.movefrom
+        self.moveto = src.moveto
 
-        self.best_movefrom = current.best_movefrom
-        self.best_moveto = current.best_moveto
+        self.best_movefrom = src.best_movefrom
+        self.best_moveto = src.best_moveto
         self.eval = 0.0
         self.children = []
 
@@ -79,6 +90,10 @@ class Node:
         
     # determine if white is not in check in a position
     def white_out_of_check(self):
+        # if white king is not present, return False
+        if len(self.pieces[5]) != 1:
+            return False
+        
         pos = self.pieces[5][0]
         b = self.board
         rank = int(pos / 8)
@@ -199,7 +214,10 @@ class Node:
 
     # determine if black is not in check in a position
     def black_out_of_check(self):
-        print(self.pieces)
+        # if black king is not present, return False
+        if len(self.pieces[11]) != 1:
+            return False
+        
         pos = self.pieces[11][0]
         b = self.board
         rank = int(pos / 8)
@@ -471,23 +489,35 @@ class Node:
         if self.is_semilegal_move(movefrom, moveto):
             new = self.execute_move(movefrom, moveto)
             if new == None: return False
-            if new.turn % 2 == 1: return new.white_out_of_check()
-            return new.black_out_of_check()
+            return True
         return False
     
     # method for generating position after move, or for adding a new position child node to a current leaf, given the node and the piece movement
     def execute_move(self, movefrom, moveto):
+        # copy the old position's data, change only the information that gets changed during this move
+        # construct a new node
+        # determine if move does not put the player in check and both kings are on the board
+        # if so, add the node to the tree and queue
+
         b = self.board[:]
-        p = self.pieces[:]
-        m = self.miscs[:]
-        print(p)
+
+        p = [[] for _ in range(12)]
+        for i in range(12):
+            for j in self.pieces[i]:
+                p[i].append(j)
+
+        m = []
+        for i in range(6):
+            m.append(self.miscs[i])
+
         movertype = b[movefrom]
         if movertype < 0 or movertype > 11: return self
         
         capturing = (movertype == 0 or movertype == 6) # pawn move or capture for resetting 50-move rule
         movernum = 0
         pm = p[movertype]
-        for i in range(len(pm)):
+        i = 0
+        while i < len(pm):
             if pm[i] == movefrom:
                 movernum = i
                 # changing the piece's location on the new board array
@@ -495,17 +525,18 @@ class Node:
                 if b[moveto] > -1:
                     capturing = True
                     # capture and remove the piece on the destination square
-                    for i in range(len(p[b[moveto]])):
-                        if p[b[moveto]][i] == moveto:
-                            p[b[moveto]].pop(i)
+                    j = 0
+                    while j < len(p[b[moveto]]):
+                        if p[b[moveto]][j] == moveto:
+                            p[b[moveto]].pop(j)
                             break
-                    self.pieces[b[moveto]] = p[b[moveto]]
+                        j += 1
                 b[moveto] = movertype
                 # change the piece's location on pieces
                 pm[i] = moveto
                 break
+            i += 1
 
-        print(p)
         # white pawn promotion
         if movertype == 0 and moveto > 55:
             # remove the pawn
@@ -581,22 +612,34 @@ class Node:
         m[5] += 1
         if(capturing):
             m[5] = 0
-        print(p)
+
+        # if a king has been captured or is otherwise not present, return before adding the move and resulting position
+        if len(p[5]) != 1 or len(p[11]) != 1: return None
 
         # creating the new position child node
         new = Node(b, p, self.turn + 1, m, movefrom, moveto)
+        
+        # return if move puts the player in check (since this is the only way it could be illegal) (note that we ONLY need to check this during engine calculations or analysis, inside get_choices.
+        # We may want a wrapper that tests the legality before calling execute_move() and is used in engine calculations and analysis.)
+        # Although considering again, we probably don't need to make sure we only check legality once because player's move should confirm legality anyway before moving
+        if self.turn % 2 == 1:
+            if not new.black_out_of_check(): return None
+        else:
+            if not new.white_out_of_check(): return None
+
 
         # add the move to the new position
         new.movefrom = movefrom
         new.moveto = moveto
 
-        # add the new position to the tree (leaf's children)
+        # add the new position to the tree (leaf's children) for future branching
         self.children.append(new)
 
-        if new.eval == None: return None
-
-        # if both kings are on the board, add the new position to the queue for future branching
+        # add the new position to the queue for future branching
         futures.append(new)
+        if(new.movefrom == 12 and new.moveto == 28 and new.turn == 1):
+            print(new.pieces)
+            print(new.board)
         return new
     
     # evaluate an entirely new position
@@ -607,17 +650,36 @@ class Node:
         for i in self.children:
             i.destroy_tree()
 
-        # set the tree root as a copy of current
-        self.copy_from_current()
+        # set this node (tree_root) as a copy of current
+        self.copy_position(current)
 
-        # add the current position to the queue of positions to evaluate
-        futures.append(Node(self.board, self.pieces, self.turn, self.miscs, "", ""))
+        # search for lack of kings, return max, min, or mid eval
+        if len(self.pieces[5]) != 1:
+            if len(self.pieces[11]) != 1:
+                self.eval = MID_EVAL
+                return
+            self.eval = MIN_EVAL
+            return
+        if len(self.pieces[11]) != 1:
+            self.eval = MAX_EVAL
+            return
+
+        # search for opportunity to take enemy king, return max or min eval
+        if self.turn % 2 == 0:
+            if(not self.black_out_of_check()):
+                self.eval = MAX_EVAL
+        else:
+            if(not self.white_out_of_check()):
+                self.eval = MIN_EVAL
+
+        # add this node (tree_root) to the queue of positions to evaluate
+        futures.append(self)
 
         # get the time at the start of the evaluation
         start_time = time.time_ns()
 
-        # keep evaluating positions until you need to make a move
-        while((time.time_ns() - start_time) / 1000 < time_limit):
+        # keep evaluating positions until you need to make a move or until there are no more legal moves to evaluate
+        while((time.time_ns() - start_time) / 1000 < time_limit and len(futures) > 0):
 
             # get the next position in the futures queue to evaluate
             node = futures.pop(0)
@@ -651,7 +713,6 @@ class Node:
             node.eval = e
 
             # get all choices for moves branching off this position and add them to both the tree of position nodes and the futures queue
-            global_add_moves = True
             if(node.turn % 2 == 0):
                 node.get_choices_white()
             else:
@@ -662,32 +723,36 @@ class Node:
 
     # recursively traverse the tree and find every position's best move back to the head, record them all
     def tree_evaluate(self):
-        white = self.turn % 2 == 0
-        for i in self.children:
-            i.tree_evaluate()
-            if((white and i.eval > self.eval) or (not white and i.eval < self.eval)):
-                self.eval = i.eval
-                self.best_movefrom = i.movefrom
-                self.best_moveto = i.moveto
+        # if there are no children, do nothing
+        if(len(self.children) == 0): return
 
-    # add a possible choice defined by moving from movefrom to moveto using first position in queue
-    def add_choice(self, movefrom, moveto):
+        white = self.turn % 2 == 0
         
-        new_position = futures[0].execute_move(movefrom, moveto)
-        if new_position != None:
-            futures.append(new_position)
+        # get the best move from this node (tree_root)'s children, using the first one as the base of comparison
+        c = self.children[0]
+        self.eval = c.eval
+        self.best_movefrom = c.movefrom
+        self.best_moveto = c.moveto
+        
+        for i in range(1, len(self.children)):
+            c = self.children[i]
+            c.tree_evaluate()
+            if((white and c.eval > self.eval) or (not white and c.eval < self.eval)):
+                self.eval = c.eval
+                self.best_movefrom = c.movefrom
+                self.best_moveto = c.moveto
 
     # checks whether a piece can move to a square and returns True when cannot move farther (MAYBE MAKE SURE NOT MOVING INTO CHECK)
     def check_square_move(self, movefrom, moveto):
         
         target = self.board[moveto]
         if target > -1:
-            if target > 5 and self.turn % 2 == 1:
-                self.add_choice(movefrom, moveto)
-            if target < 6 and self.turn % 2 == 0:
-                self.add_choice(movefrom, moveto)
+            if target < 6 and self.turn % 2 == 1:
+                self.execute_move(movefrom, moveto)
+            if target > 5 and self.turn % 2 == 0:
+                self.execute_move(movefrom, moveto)
             return True
-        self.add_choice(movefrom, moveto)
+        self.execute_move(movefrom, moveto)
         return False
 
     # get all the possible choices that a piece can make
@@ -696,8 +761,8 @@ class Node:
 
         b = self.board
         mover = b[movefrom]
-        rank = int(movefrom / 8)
-        file = movefrom % 8
+        r = int(movefrom / 8)
+        f = movefrom % 8
 
         # if moving the wrong color piece, exit immediately
         if self.turn % 2 == 1 and mover < 6: return
@@ -705,148 +770,148 @@ class Node:
         
         match mover:
             case 3 | 9: # rook
-                i = file + 1
+                i = f + 1
                 while i < 8:
-                    if self.check_square_move(movefrom, rank * 8 + i): break
+                    if self.check_square_move(movefrom, r * 8 + i): break
                     i += 1
-                i = rank + 1
+                i = r + 1
                 while i < 8:
-                    if self.check_square_move(movefrom, i * 8 + file): break
+                    if self.check_square_move(movefrom, i * 8 + f): break
                     i += 1
-                i = file - 1
+                i = f - 1
                 while i > -1:
-                    if self.check_square_move(movefrom, rank * 8 + i): break
+                    if self.check_square_move(movefrom, r * 8 + i): break
                     i -= 1
-                i = rank - 1
+                i = r - 1
                 while i > -1:
-                    if self.check_square_move(movefrom, i * 8 + file): break
+                    if self.check_square_move(movefrom, i * 8 + f): break
                     i -= 1
             case 1 | 7: # knight
-                if rank < 7 and file < 6: self.check_square_move(movefrom, (i + 1) * 8 + j + 2)
-                if rank < 6 and file < 7: self.check_square_move(movefrom, (i + 2) * 8 + j + 1)
-                if rank < 6 and file > 0: self.check_square_move(movefrom, (i + 2) * 8 + j - 1)
-                if rank < 7 and file > 1: self.check_square_move(movefrom, (i + 1) * 8 + j - 2)
-                if rank > 0 and file > 1: self.check_square_move(movefrom, (i - 1) * 8 + j - 2)
-                if rank > 1 and file > 0: self.check_square_move(movefrom, (i - 2) * 8 + j - 1)
-                if rank > 1 and file < 7: self.check_square_move(movefrom, (i - 2) * 8 + j + 1)
-                if rank > 0 and file < 6: self.check_square_move(movefrom, (i - 1) * 8 + j + 2)
+                if r < 7 and f < 6: self.check_square_move(movefrom, (r + 1) * 8 + f + 2)
+                if r < 6 and f < 7: self.check_square_move(movefrom, (r + 2) * 8 + f + 1)
+                if r < 6 and f > 0: self.check_square_move(movefrom, (r + 2) * 8 + f - 1)
+                if r < 7 and f > 1: self.check_square_move(movefrom, (r + 1) * 8 + f - 2)
+                if r > 0 and f > 1: self.check_square_move(movefrom, (r - 1) * 8 + f - 2)
+                if r > 1 and f > 0: self.check_square_move(movefrom, (r - 2) * 8 + f - 1)
+                if r > 1 and f < 7: self.check_square_move(movefrom, (r - 2) * 8 + f + 1)
+                if r > 0 and f < 6: self.check_square_move(movefrom, (r - 1) * 8 + f + 2)
             case 2 | 6: # bishop
-                i = rank + 1
-                j = file + 1
+                i = r + 1
+                j = f + 1
                 while i < 8 and j < 8:
                     if self.check_square_move(movefrom, i * 8 + j): break
                     i += 1
                     j += 1
-                i = rank + 1
-                j = file - 1
+                i = r + 1
+                j = f - 1
                 while i < 8 and j > -1:
                     if self.check_square_move(movefrom, i * 8 + j): break
                     i += 1
                     j -= 1
-                i = rank - 1
-                j = file - 1
+                i = r - 1
+                j = f - 1
                 while i > -1 and j > -1:
                     if self.check_square_move(movefrom, i * 8 + j): break
                     i -= 1
                     j -= 1
-                i = rank - 1
-                j = file + 1
+                i = r - 1
+                j = f + 1
                 while i > -1 and j < 8:
                     if self.check_square_move(movefrom, i * 8 + j): break
                     i -= 1
                     j += 1
             case 4 | 10: # queen
-                i = file + 1
+                i = f + 1
                 while i < 8:
-                    if self.check_square_move(movefrom, rank * 8 + i): break
+                    if self.check_square_move(movefrom, r * 8 + i): break
                     i += 1
-                i = rank + 1
+                i = r + 1
                 while i < 8:
-                    if self.check_square_move(movefrom, i * 8 + file): break
+                    if self.check_square_move(movefrom, i * 8 + f): break
                     i += 1
-                i = file - 1
+                i = f - 1
                 while i > -1:
-                    if self.check_square_move(movefrom, rank * 8 + i): break
+                    if self.check_square_move(movefrom, r * 8 + i): break
                     i -= 1
-                i = rank - 1
+                i = r - 1
                 while i > -1:
-                    if self.check_square_move(movefrom, i * 8 + file): break
+                    if self.check_square_move(movefrom, i * 8 + f): break
                     i -= 1
-                i = rank + 1
-                j = file + 1
+                i = r + 1
+                j = f + 1
                 while i < 8 and j < 8:
                     if self.check_square_move(movefrom, i * 8 + j): break
                     i += 1
                     j += 1
-                i = rank + 1
-                j = file - 1
+                i = r + 1
+                j = f - 1
                 while i < 8 and j > -1:
                     if self.check_square_move(movefrom, i * 8 + j): break
                     i += 1
                     j -= 1
-                i = rank - 1
-                j = file - 1
+                i = r - 1
+                j = f - 1
                 while i > -1 and j > -1:
                     if self.check_square_move(movefrom, i * 8 + j): break
                     i -= 1
                     j -= 1
-                i = rank - 1
-                j = file + 1
+                i = r - 1
+                j = f + 1
                 while i > -1 and j < 8:
                     if self.check_square_move(movefrom, i * 8 + j): break
                     i -= 1
                     j += 1
             case 0: # white pawns
-                if rank < 7:
-                    moveto = (rank + 1) * 8 + file
+                if r < 7:
+                    moveto = (r + 1) * 8 + f
                     if b[moveto] == ' ': # move upward
-                        self.add_choice(movefrom, moveto)
-                        if rank == 1 and b[moveto + 8] == ' ': # move upward two spaces
-                            self.add_choice(movefrom, moveto + 8)
-                    moveto = (rank + 1) * 8 + file + 1
-                    if file < 7:
+                        self.execute_move(movefrom, moveto)
+                        if r == 1 and b[moveto + 8] == ' ': # move upward two spaces
+                            self.execute_move(movefrom, moveto + 8)
+                    moveto = (r + 1) * 8 + f + 1
+                    if f < 7:
                         if b[moveto] > 5: # capture up-right
-                            self.add_choice(movefrom, moveto)
-                        if b[moveto] == ' ' and self.miscs[4] == file + 1: # en passant up-right
-                            self.add_choice(movefrom, moveto)
+                            self.execute_move(movefrom, moveto)
+                        if b[moveto] == ' ' and self.miscs[4] == f + 1: # en passant up-right
+                            self.execute_move(movefrom, moveto)
 
-                    moveto = (rank + 1) * 8 + file - 1
-                    if file > 0:
+                    moveto = (r + 1) * 8 + f - 1
+                    if f > 0:
                         if b[moveto] > 5: # capture up-left
-                            self.add_choice(movefrom, moveto)
-                        if b[moveto] == ' ' and self.miscs[4] == file - 1: # en passant up-left
-                            self.add_choice(movefrom, moveto)
+                            self.execute_move(movefrom, moveto)
+                        if b[moveto] == ' ' and self.miscs[4] == f - 1: # en passant up-left
+                            self.execute_move(movefrom, moveto)
             case 6: # black pawns
-                if rank > 0:
-                    moveto = (rank - 1) * 8 + file
+                if r > 0:
+                    moveto = (r - 1) * 8 + f
                     if b[moveto] == ' ': # move downward
-                        self.add_choice(movefrom, moveto)
-                        if rank == 6 and b[moveto - 8] == ' ': # move upward two spaces
-                            self.add_choice(movefrom, moveto - 8)
-                    moveto = (rank - 1) * 8 + file + 1
-                    if file < 7:
+                        self.execute_move(movefrom, moveto)
+                        if r == 6 and b[moveto - 8] == ' ': # move upward two spaces
+                            self.execute_move(movefrom, moveto - 8)
+                    moveto = (r - 1) * 8 + f + 1
+                    if f < 7:
                         if b[moveto] > -1 and b[moveto] < 6: # capture down-right
-                            self.add_choice(movefrom, moveto)
-                        if b[moveto] == ' ' and self.miscs[4] == file + 1: # en passant down-right
-                            self.add_choice(movefrom, moveto)
+                            self.execute_move(movefrom, moveto)
+                        if b[moveto] == ' ' and self.miscs[4] == f + 1: # en passant down-right
+                            self.execute_move(movefrom, moveto)
 
-                    moveto = (rank - 1) * 8 + file - 1
-                    if file > 0:
+                    moveto = (r - 1) * 8 + f - 1
+                    if f > 0:
                         if b[moveto] > -1 and b[moveto] < 6: # capture down-left
-                            self.add_choice(movefrom, moveto)
-                        if b[moveto] == ' ' and self.miscs[4] == file - 1: # en passant down-left
-                            self.add_choice(movefrom, moveto)
+                            self.execute_move(movefrom, moveto)
+                        if b[moveto] == ' ' and self.miscs[4] == f - 1: # en passant down-left
+                            self.execute_move(movefrom, moveto)
             case 5 | 11: # white/black king
-                if rank < 7:
-                    self.check_square_move((rank + 1) * 8 + file)
-                    if file < 7: self.check_square_move((rank + 1) * 8 + file + 1)
-                    if file > 0: self.check_square_move((rank + 1) * 8 + file - 1)
-                if rank > 0:
-                    self.check_square_move((rank - 1) * 8 + file)
-                    if file < 7: self.check_square_move((rank - 1) * 8 + file + 1)
-                    if file > 0: self.check_square_move((rank - 1) * 8 + file - 1)
-                if file < 7: self.check_square_move(rank * 8 + file + 1)
-                if file > 0: self.check_square_move(rank * 8 + file - 1)
+                if r < 7:
+                    self.check_square_move(movefrom, (r + 1) * 8 + f)
+                    if f < 7: self.check_square_move(movefrom, (r + 1) * 8 + f + 1)
+                    if f > 0: self.check_square_move(movefrom, (r + 1) * 8 + f - 1)
+                if r > 0:
+                    self.check_square_move(movefrom, (r - 1) * 8 + f)
+                    if f < 7: self.check_square_move(movefrom, (r - 1) * 8 + f + 1)
+                    if f > 0: self.check_square_move(movefrom, (r - 1) * 8 + f - 1)
+                if f < 7: self.check_square_move(movefrom, r * 8 + f + 1)
+                if f > 0: self.check_square_move(movefrom, r * 8 + f - 1)
 
             # Now check for both kings' castling ability by inching them down and seeing if they remain out of check the whole way
 
@@ -864,7 +929,7 @@ class Node:
                                 self.pieces[5][0] = 4
                                 b[6] = -1
                                 b[4] = 0
-                                self.add_choice(4, 6)
+                                self.execute_move(4, 6)
                         self.pieces[5][0] = 4
                         b[6] = -1
                         b[5] = -1
@@ -882,7 +947,7 @@ class Node:
                                 self.pieces[5][0] = 4
                                 b[2] = -1
                                 b[4] = 5
-                                self.add_choice(4, 2)
+                                self.execute_move(4, 2)
                         self.pieces[5][0] = 4
                         b[2] = -1
                         b[3] = -1
@@ -901,7 +966,7 @@ class Node:
                                 self.pieces[11][0] = 60
                                 b[62] = -1
                                 b[60] = 11
-                                self.add_choice(60, 62)
+                                self.execute_move(60, 62)
                         self.pieces[11][0] = 60
                         b[62] = -1
                         b[61] = -1
@@ -919,7 +984,7 @@ class Node:
                                 self.pieces[11][0] = 60
                                 b[58] = -1
                                 b[60] = 11
-                                self.add_choice(60, 58)
+                                self.execute_move(60, 58)
                         self.pieces[11][0] = 60
                         b[58] = -1
                         b[59] = -1
@@ -944,16 +1009,16 @@ class Node:
             self.get_choices_white()
             if(len(self.children) == 0):
                 if self.white_out_of_check(): # white is stalemated
-                    return 2
+                    return 4
                 else: # white is checkmated
-                    return 3
-        if self.turn % 2 == 1:
+                    return 2
+        else:
             self.get_choices_black()
             if(len(self.children) == 0):
                 if self.black_out_of_check(): # black is stalemated
-                    return 1
-                else: # black is checkmated
                     return 3
+                else: # black is checkmated
+                    return 1
         return 0
 
     # recursively destroy all of this root's children >:)
@@ -1009,9 +1074,23 @@ class Node:
 # castling: (0/1) WK, WQ, BK, BQ, en passant file (0-7), 50 move rule (int)
 # past movesfrom
 # past movesto
-current = Node([-1] * 64, [[] * 12], 0, [1, 1, 1, 1, -1, 0], -1, -1)
 
-tree_root = Node(current.board, current.pieces, current.turn, current.miscs, -1, -1)
+empty64c = []
+for i in range(64):
+    empty64c.append(-1)
+empty12c = []
+for i in range(12):
+    empty12c.append([])
+empty64t = []
+for i in range(64):
+    empty64t.append(-1)
+empty12t = []
+for i in range(12):
+    empty12t.append([])
+    
+current = Node(empty64c, empty12c, 0, [1, 1, 1, 1, -1, 0], -1, -1)
+
+tree_root = Node(empty64t, empty12t, 0, [1, 1, 1, 1, -1, 0], -1, -1)
 
 
 # train (evolve) the algorithm
@@ -1066,6 +1145,9 @@ def train(time_limit, training_time_limit, mutation_strength, upper_limit, lower
             tree_root.base_evaluate(square_eval0, time_limit)
 
             new = current.execute_move(tree_root.best_movefrom, tree_root.best_moveto)
+            if(new == None):
+                print("Engine made an illegal move in train. " + tree_root.best_movefrom + " to " + tree_root.best_moveto + ".")
+                exit(1)
             current = new
                     
             game_status = current.check_game_end()
@@ -1075,7 +1157,7 @@ def train(time_limit, training_time_limit, mutation_strength, upper_limit, lower
                 match game_status:
                     case 1: winner = 0 # White wins
                     case 2: winner = 1 # Black wins
-                    case 3: winner = random.choice([0, 1]) # Draw
+                    case 3 | 4: winner = random.choice([0, 1]) # Draw
             if game_over: break
                         
                         
@@ -1084,6 +1166,9 @@ def train(time_limit, training_time_limit, mutation_strength, upper_limit, lower
             tree_root.base_evaluate(square_eval1, time_limit)
 
             new = current.execute_move(tree_root.best_movefrom, tree_root.best_moveto)
+            if(new == None):
+                print("Engine made an illegal move in train. " + tree_root.best_movefrom + " to " + tree_root.best_moveto + ".")
+                exit(1)
             current = new
                     
             game_status = current.check_game_end()
@@ -1093,7 +1178,7 @@ def train(time_limit, training_time_limit, mutation_strength, upper_limit, lower
                 match game_status:
                     case 1: winner = 0 # White wins
                     case 2: winner = 1 # Black wins
-                    case 3: winner = random.choice([0, 1]) # Draw
+                    case 3 | 4: winner = random.choice([0, 1]) # Draw
             if game_over: break
 
     # once time is up, fill square_eval with the new best trained square_eval from square_evals
@@ -1331,7 +1416,17 @@ def player_play():
             reprompt = parse_move(answer)
 
     new = current.execute_move(user_movefrom, user_moveto)
-    current = new
+    print(new.movefrom)
+    print(new.moveto)
+    print(new.turn)
+    if(new.movefrom == 12 and new.moveto == 28 and new.turn == 1):
+        print("Current pieces: " + str(new.pieces))
+        print("Current board: " + str(new.board))
+    if(new == None):
+        print("Player made an illegal move in player_play. " + user_movefrom + " to " + user_moveto + ".")
+        exit(1)
+    current.copy_position(new)
+
             
     return current.check_game_end()
 
@@ -1339,6 +1434,8 @@ def player_play():
 def engine_play(square_eval, time_limit, difficulty):
     global tree_root
     global current
+
+    print_board()
     
     tree_root.base_evaluate(square_eval, time_limit)
 
@@ -1346,9 +1443,24 @@ def engine_play(square_eval, time_limit, difficulty):
     moveto = tree_root.best_moveto
     if difficulty < 100:
 
-        # find all move possibilities
-        choices = []
         s = len(tree_root.children)
+        if s == 0:
+            game_status = tree_root.check_game_end()
+            match game_status:
+                case 0:
+                    print("Engine could not find any moves even though game did not end.")
+                    exit(1)
+                case 1:
+                    return 1
+                case 2:
+                    return 2
+                case 3:
+                    return 3
+                case 4:
+                    return 4
+
+        # find all choices
+        choices = []
         for i in range(s):
             choices.append(tree_root.children[i])
         
@@ -1356,7 +1468,7 @@ def engine_play(square_eval, time_limit, difficulty):
         if current.turn % 2 == 1:
             for i in range(s):
                 for j in range(i + 1, s):
-                    if choices[i] > choices[j]:
+                    if choices[i].eval > choices[j].eval:
                         temp = choices[i]
                         choices[i] = choices[j]
                         choices[j] = temp
@@ -1374,8 +1486,11 @@ def engine_play(square_eval, time_limit, difficulty):
         moveto = choices[r].moveto
 
     new = current.execute_move(movefrom, moveto)
+    if(new == None):
+        print("Engine made an illegal move in engine_play. " + movefrom + " to " + moveto + ".")
+        exit(1)
     current = new
-            
+    
     return current.check_game_end()
 
 # main game loop that controls game progression
@@ -1425,7 +1540,7 @@ def game_loop(difficulty):
                         print("\nGame over! White wins by checkmate. Enter \"x\" to leave, or anything else to play again.  ")
                     case 2:
                         print("\nGame over! Black wins by checkmate. Enter \"x\" to leave, or anything else to play again.  ")
-                    case 3:
+                    case 3 | 4:
                         print("\nGame over! Draw by stalemate. Enter \"x\" to leave, or anything else to play again.  ")
                 answer = input()
                 if answer == 'x' or answer == 'X': return
@@ -1443,7 +1558,7 @@ def game_loop(difficulty):
                         print("\nGame over! White wins by checkmate. Enter \"x\" to leave, or anything else to play again.  ")
                     case 2:
                         print("\nGame over! Black wins by checkmate. Enter \"x\" to leave, or anything else to play again.  ")
-                    case 3:
+                    case 3 | 4:
                         print("\nGame over! Draw by stalemate. Enter \"x\" to leave, or anything else to play again.  ")
                 answer = input()
                 if answer == 'x' or answer == 'X': return
@@ -1458,7 +1573,7 @@ def game_loop(difficulty):
                         print("\nGame over! White wins by checkmate. Enter \"x\" to leave, or anything else to play again.  ")
                     case 2:
                         print("\nGame over! Black wins by checkmate. Enter \"x\" to leave, or anything else to play again.  ")
-                    case 3:
+                    case 3 | 4:
                         print("\nGame over! Draw by stalemate. Enter \"x\" to leave, or anything else to play again.  ")
                 answer = input()
                 if answer == 'x' or answer == 'X': return
@@ -1470,20 +1585,38 @@ def analyze_position(time_limit):
     global current
 
     print("Analyzing this position...\n\n")
+
+    end_result = tree_root.check_game_end()
+    match end_result:
+        case 1:
+            print("White has checkmated Black. White wins.")
+            return
+        case 2:
+            print("Black has checkmated White. Black wins.")
+            return
+        case 3:
+            print("White has stalemated Black. The game is a draw.")
+            return
+        case 4:
+            print("Black has stalemated White. The game is a draw.")
+            return
+
     tree_root.base_evaluate(square_eval, time_limit)
 
     moves = []
     for i in current.children:
         moves.append(i)
 
+    white_move = current.turn % 2 == 1
+
     s = len(moves)
     for i in range(s):
         for j in range(i + 1, s):
-            if(current.turn % 2 == 1 and moves[i].eval > moves[j].eval):
+            if(white_move and moves[i].eval > moves[j].eval):
                 temp = moves[i]
                 moves[i] = moves[j]
                 moves[j] = temp
-            if(current.turn % 2 == 0 and moves[i].eval < moves[j].eval):
+            if((not white_move) and moves[i].eval < moves[j].eval):
                 temp = moves[i]
                 moves[i] = moves[j]
                 moves[j] = temp
@@ -1493,6 +1626,10 @@ def analyze_position(time_limit):
     rank_codes = ["1", "2", "3", "4", "5", "6", "7", "8"]
 
     # print each move followed by its respective eval
+    player_string = "Black"
+    if(white_move):
+        player_string = "White"
+    print("There are " + s + "moves available for " + player_string + ".")
     for i in range(s):
         print(piece_codes[current.board[moves[i].movefrom]] + file_codes[moves[i].movefrom % 8] + rank_codes[int(moves[i].movefrom / 8)] + file_codes[moves[i].moveto % 8] + rank_codes[int(moves[i].moveto / 8)] + "      " + moves[i].eval + "\n")
         
@@ -1505,7 +1642,9 @@ def parse_fen(answer):
 
     l = len(answer)
     p = current.pieces
-    p = [[] * 12]
+    for i in range(12):
+        p[i] = []
+        
     b = current.board
     for i in range(64):
         b[i] = -1
